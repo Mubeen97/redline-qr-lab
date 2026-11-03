@@ -1,0 +1,68 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>REDLINE QR Security Lab</title>
+  <style>
+    body {
+      background: #081525;
+      color: white;
+      font-family: Arial, sans-serif;
+      padding: 24px;
+    }
+    .card {
+      background: #13263e;
+      border: 1px solid #315273;
+      border-radius: 14px;
+      padding: 20px;
+      max-width: 600px;
+      margin: 30px auto;
+    }
+    h1 { color: #48baff; }
+    .item {
+      padding: 12px 0;
+      border-bottom: 1px solid #315273;
+      overflow-wrap: anywhere;
+    }
+    .label { color: #88c8f7; }
+    .notice { color: #75e0af; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>REDLINE SECURITY LAB</h1>
+    <h3>Experiment 1 — Device Information</h3>
+    <p class="notice">LOCAL TEST — NO DATA UPLOADED</p>
+    <div id="results"></div>
+  </div>
+
+  <script>
+    const info = {
+      "Browser Identifier": navigator.userAgent,
+      "Language": navigator.language,
+      "Time Zone": Intl.DateTimeFormat().resolvedOptions().timeZone,
+      "Screen Resolution": screen.width + " x " + screen.height,
+      "Connection Status": navigator.onLine ? "Online" : "Offline"
+    };
+
+    const container = document.getElementById("results");
+
+    for (const [label, value] of Object.entries(info)) {
+      const row = document.createElement("div");
+      row.className = "item";
+
+      const heading = document.createElement("div");
+      heading.className = "label";
+      heading.textContent = label;
+
+      const detail = document.createElement("div");
+      detail.textContent = value;
+
+      row.append(heading, detail);
+      container.appendChild(row);
+    }
+  </script>
+</body>
+</html>
