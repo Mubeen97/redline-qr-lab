@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/wrangler.json",
-  "name": "redline-remote-signal",
+  "name": "redline-qr-lab",
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "workers_dev": true,
