@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https: wss:; media-src blob:; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>REDLINE Remote Viewer — Admin</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #071625; color: #edf5ff; line-height: 1.5; }
+    main { max-width: 980px; margin: auto; padding: 26px 16px 48px; }
+    h1 { font-size: clamp(26px,4vw,38px); margin: 8px 0; }
+    h2 { font-size: 20px; margin: 0 0 10px; }
+    p { color: #a8c4dc; }
+    .eyebrow { color: #75c4ff; letter-spacing: .13em; font-size: 12px; font-weight: 800; }
+    .card { border: 1px solid #31516d; background: #13273d; padding: 20px; border-radius: 16px; margin-top: 18px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    label { display: block; color: #cde5f6; margin: 12px 0 5px; font-weight: 700; }
+    input { width: 100%; background: #081b2d; color: #fff; padding: 12px; border: 1px solid #567390; border-radius: 10px; font: inherit; }
+    .actions { display: flex; flex-wrap: wrap; gap: 9px; margin: 15px 0 4px; }
+    button { padding: 12px 16px; border-radius: 10px; border: 0; font: inherit; font-weight: 750; color: #081625; background: #4ab6f4; cursor: pointer; }
+    button.secondary { background: #27435d; color: #eaf5ff; border: 1px solid #577c9c; }
+    button:disabled { opacity: .48; cursor: not-allowed; }
+    .status { color: #b6d3e8; min-height: 25px; }
+    .good { color: #8ee4bd; }
+    .warn { color: #ffd58b; }
+    .hidden { display: none; }
+    .note { background: #0d3340; border: 1px solid #337380; border-radius: 10px; padding: 11px; font-size: 13px; }
+    video { width: 100%; max-height: 510px; background: #050e18; border-radius: 12px; min-height: 200px; object-fit: contain; }
+    .link { overflow-wrap: anywhere; padding: 12px; border: 1px dashed #5a7892; background: #0b1f31; border-radius: 9px; font-size: 13px; color: #b6e4ff; }
+    small { color: #95b1ca; }
+    @media(max-width:700px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">REDLINE ACADEMY / LIVE LAB</div>
+  <h1>Remote Viewer · Admin</h1>
+  <p>Password-protected live viewing of <strong>one explicitly consenting test device</strong>. The device starts and stops its own camera.</p>
+  <div class="note">The dashboard HTML is public, but the signaling connection and session data require the server-side admin password. No password is embedded in this page or saved to browser storage.</div>
+
+  <section class="card" id="loginPanel">
+    <h2>1 · Connect to your signaling Worker</h2>
+    <form id="loginForm">
+      <label for="workerUrl">Cloudflare Worker URL</label>
+      <input id="workerUrl" placeholder="https://redline-remote-signal.YOUR-SUBDOMAIN.workers.dev" required spellcheck="false" autocapitalize="none">
+      <label for="adminPassword">Admin password (Cloudflare secret)</label>
+      <input id="adminPassword" type="password" required autocomplete="off">
+      <div class="actions"><button type="submit" id="connectBtn">Connect securely</button></div>
+    </form>
+    <div id="loginStatus" class="status" role="status">Not connected</div>
+  </section>
+
+  <section class="grid hidden" id="dashboard">
+    <div class="card">
+      <h2>2 · Invite one Android device</h2>
+      <p>Make a one-time invitation. The link expires after 10 minutes and can only pair one device.</p>
+      <div class="actions"><button type="button" id="pairBtn">Create pairing link</button></div>
+      <div id="pairUrl" class="link" aria-live="polite">No invitation created</div>
+      <div class="actions">
+        <button type="button" id="copyBtn" class="secondary" disabled>Copy invitation</button>
+        <a id="qrOpen" class="hidden" target="_blank" rel="noreferrer" style="color:#a4e0ff;align-self:center">Open invitation tab for Edge QR code</a>
+      </div>
+      <small>The invite contains a temporary secret in the URL fragment. Share it only with your own test phone. GitHub Pages does not receive fragments in HTTP requests.</small>
+    </div>
+    <div class="card">
+      <h2>Session status</h2>
+      <p id="deviceStatus" class="status" role="status">No device connected</p>
+      <p id="streamStatus" class="status" role="status">Waiting for the device to start sharing</p>
+      <div class="actions"><button type="button" id="endBtn" class="secondary" disabled>End live view</button></div>
+      <small>Only the device owner can start the camera. Closing this page or disconnecting the device ends the stream.</small>
+    </div>
+  </section>
+
+  <section class="card hidden" id="viewerPanel">
+    <h2>Live camera from the test phone</h2>
+    <video id="remoteVideo" autoplay playsinline muted></video>
+    <p id="videoNote">No live feed yet.</p>
+  </section>
+</main>
+<script>
+  'use strict';
+  const $ = id => document.getElementById(id);
+  let socket = null, peer = null, workerBase = '', invitation = '';
+  let pendingIce = [];
+  const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+  function setLogin(text) { $('loginStatus').textContent = text; }
+  function setDevice(text) { $('deviceStatus').textContent = text; }
+  function setStream(text) { $('streamStatus').textContent = text; $('videoNote').textContent = text; }
+  function send(message) { if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
+  function cleanPeer() {
+    if (peer) { peer.ontrack = null; peer.close(); peer = null; }
+    pendingIce = [];
+    $('remoteVideo').srcObject = null;
+    $('endBtn').disabled = true;
+  }
+  function normalizeWorker(value) {
+    const u = new URL(value);
+    if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) throw Error('Use the HTTPS root URL of your Worker');
+    return u.origin;
+  }
+
+  $('loginForm').addEventListener('submit', event => {
+    event.preventDefault();
+    let password;
+    try { workerBase = normalizeWorker($('workerUrl').value.trim()); }
+    catch (error) { setLogin(error.message); return; }
+    password = $('adminPassword').value;
+    if (!password) return;
+    $('connectBtn').disabled = true;
+    setLogin('Connecting to signaling service...');
+    if (socket) socket.close();
+    socket = new WebSocket(workerBase.replace('https:', 'wss:') + '/ws');
+    socket.onopen = () => {
+      send({ type: 'auth', role: 'admin', password });
+      password = '';
+      $('adminPassword').value = '';
+    };
+    socket.onmessage = async event => {
+      let msg;
+      try { msg = JSON.parse(event.data); } catch { return; }
+      if (msg.type === 'authenticated') {
+        setLogin('Authenticated to your signaling Worker');
+        $('loginPanel').classList.add('hidden');
+        $('dashboard').classList.remove('hidden');
+        $('viewerPanel').classList.remove('hidden');
+      } else if (msg.type === 'auth-error') {
+        setLogin('Authentication failed or temporarily rate-limited');
+      } else if (msg.type === 'pairing') {
+        const url = new URL('share.html', location.href);
+        url.hash = new URLSearchParams({ server: workerBase, token: msg.token }).toString();
+        invitation = url.toString();
+        $('pairUrl').textContent = invitation;
+        $('copyBtn').disabled = false;
+        $('qrOpen').href = invitation;
+        $('qrOpen').classList.remove('hidden');
+      } else if (msg.type === 'device-online') {
+        setDevice('Android device connected; waiting for its owner to start the camera');
+      } else if (msg.type === 'device-offline') {
+        cleanPeer(); setDevice('Device disconnected'); setStream('Live feed stopped');
+      } else if (msg.type === 'offer') {
+        await receiveOffer(msg.description);
+      } else if (msg.type === 'candidate') {
+        await receiveCandidate(msg.candidate);
+      } else if (msg.type === 'stop') {
+        cleanPeer(); setStream('Sharing was stopped');
+      }
+    };
+    socket.onclose = () => {
+      cleanPeer();
+      $('dashboard').classList.add('hidden');
+      $('viewerPanel').classList.add('hidden');
+      $('loginPanel').classList.remove('hidden');
+      $('connectBtn').disabled = false;
+      setLogin('Disconnected. Log in again to resume.');
+    };
+    socket.onerror = () => setLogin('Could not connect. Check the Worker URL and deployment.');
+  });
+
+  $('pairBtn').addEventListener('click', () => send({ type: 'create-pair' }));
+  $('copyBtn').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(invitation); $('copyBtn').textContent = 'Copied'; }
+    catch { $('copyBtn').textContent = 'Copy manually from above'; }
+  });
+  $('endBtn').addEventListener('click', () => {
+    send({ type: 'stop' }); cleanPeer(); setStream('Viewer ended this session');
+  });
+
+  async function receiveOffer(description) {
+    const earlyCandidates = pendingIce;
+    cleanPeer();
+    pendingIce = earlyCandidates;
+    peer = new RTCPeerConnection(rtcConfig);
+    peer.onicecandidate = event => { if (event.candidate) send({ type: 'candidate', candidate: event.candidate }); };
+    peer.ontrack = event => {
+      $('remoteVideo').srcObject = event.streams[0] || new MediaStream([event.track]);
+      $('remoteVideo').play().catch(() => {});
+      $('endBtn').disabled = false;
+      setStream('Receiving the consented live camera feed');
+    };
+    peer.onconnectionstatechange = () => {
+      if (peer && ['failed','disconnected','closed'].includes(peer.connectionState)) {
+        cleanPeer(); setStream('Peer connection ended; a new share must be started on the phone');
+      }
+    };
+    try {
+      await peer.setRemoteDescription(description);
+      for (const c of pendingIce.splice(0)) await peer.addIceCandidate(c);
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      send({ type: 'answer', description: peer.localDescription });
+      setStream('Connecting the camera stream...');
+    } catch (error) { cleanPeer(); setStream('WebRTC setup failed: ' + error.name); }
+  }
+  async function receiveCandidate(candidate) {
+    if (!candidate) return;
+    if (!peer || !peer.remoteDescription) { pendingIce.push(candidate); return; }
+    try { await peer.addIceCandidate(candidate); } catch { setStream('A network candidate could not be used'); }
+  }
+  window.addEventListener('pagehide', () => {
+    send({ type:'stop' }); cleanPeer(); if (socket) socket.close();
+  });
+</script>
+</body>
+</html>

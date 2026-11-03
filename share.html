@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https: wss:; media-src blob:; base-uri 'none'; form-action 'none'">
+  <title>REDLINE Remote Viewer — Share Camera</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, Segoe UI, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #071625; color: #eef6ff; line-height: 1.5; }
+    main { max-width: 650px; margin: auto; padding: 26px 16px 55px; }
+    .eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .13em; color: #7cccff; }
+    h1 { font-size: 30px; margin: 9px 0; }
+    h2 { font-size: 20px; margin: 0 0 12px; }
+    p { color: #b3cce0; }
+    .card { background: #13283d; border: 1px solid #315574; padding: 20px; border-radius: 16px; margin: 17px 0; }
+    .notice { background: #10382e; border: 1px solid #24765d; color: #b0f2d7; padding: 12px; border-radius: 11px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+    button { font: inherit; font-weight: 800; background: #43b8ef; color: #041524; padding: 13px 16px; border: 0; border-radius: 10px; cursor: pointer; }
+    button.stop { background: #edb2ac; color: #3d0b12; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    video { display: none; width: 100%; max-height: 380px; border-radius: 12px; background: #05111d; object-fit: contain; margin-top: 12px; }
+    .status { min-height: 28px; color: #c7dfef; overflow-wrap: anywhere; }
+    .minor { font-size: 13px; color: #9bbbd3; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">REDLINE ACADEMY / AUTHORIZED REMOTE VIEW</div>
+  <h1>Share your test camera</h1>
+  <p>This page lets you deliberately share your camera with your authenticated REDLINE administrator.</p>
+  <div class="notice"><strong>Your control:</strong> nothing starts from opening the link. You must connect, then tap Start camera and approve Android's prompt. You can stop at any time. Leaving this page stops sharing.</div>
+
+  <section class="card">
+    <h2>1 · Pair with your administrator</h2>
+    <div class="status" id="pairStatus" role="status">Checking invitation...</div>
+    <p class="minor" id="serverNote"></p>
+    <div class="actions"><button type="button" id="connectButton" disabled>Connect to admin</button></div>
+  </section>
+
+  <section class="card">
+    <h2>2 · Start sharing only when ready</h2>
+    <div class="status" id="cameraStatus" role="status">Camera is off</div>
+    <div class="actions">
+      <button type="button" id="startButton" disabled>Start camera sharing</button>
+      <button type="button" id="stopButton" class="stop" disabled>Stop and disconnect camera</button>
+    </div>
+    <video id="preview" autoplay playsinline muted></video>
+    <p class="minor">Local preview only. The media stream is encrypted in transit by WebRTC; our signaling Worker handles connection messages, not the camera video. No recording is enabled.</p>
+  </section>
+</main>
+<script>
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const fragment = new URLSearchParams(location.hash.replace(/^#/, ''));
+  let serverBase = '', pairToken = fragment.get('token') || '';
+  let socket = null, peer = null, cameraStream = null, adminOnline = false;
+  let pendingIce = [];
+  const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+  history.replaceState(null, '', location.pathname + location.search);
+
+  function setPair(text) { $('pairStatus').textContent = text; }
+  function setCamera(text) { $('cameraStatus').textContent = text; }
+  function send(message) { if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
+  try {
+    const parsed = new URL(fragment.get('server') || '');
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) throw Error('Invalid service URL');
+    serverBase = parsed.origin;
+    if (!pairToken || pairToken.length < 25) throw Error('Missing pairing token');
+    $('serverNote').textContent = 'Signaling service: ' + serverBase;
+    $('connectButton').disabled = false;
+    setPair('Invitation ready. Connecting alone does not enable your camera.');
+  } catch {
+    setPair('Invalid or incomplete invitation. Ask the admin to create another link.');
+  }
+
+  $('connectButton').addEventListener('click', () => {
+    if (!serverBase || !pairToken) return;
+    $('connectButton').disabled = true;
+    setPair('Connecting...');
+    socket = new WebSocket(serverBase.replace('https:', 'wss:') + '/ws');
+    socket.onopen = () => {
+      send({ type:'auth', role:'device', token:pairToken });
+      pairToken = '';
+    };
+    socket.onmessage = async event => {
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      if (message.type === 'authenticated') {
+        setPair('Paired successfully. Your camera remains OFF.');
+      } else if (message.type === 'auth-error') {
+        setPair('Pairing denied or expired. Request a fresh link.');
+      } else if (message.type === 'admin-online') {
+        adminOnline = true; $('startButton').disabled = false;
+        setPair('Admin connected. You may choose to share.');
+      } else if (message.type === 'admin-offline') {
+        adminOnline = false; stopCamera(false);
+        $('startButton').disabled = true;
+        setPair('Admin disconnected. Camera stopped.');
+      } else if (message.type === 'answer') {
+        if (peer) {
+          try {
+            await peer.setRemoteDescription(message.description);
+            for (const candidate of pendingIce.splice(0)) await peer.addIceCandidate(candidate);
+            setCamera('Camera shared with your admin; Stop at any time');
+          } catch (error) { stopCamera(true); setCamera('Connection error: ' + error.name); }
+        }
+      } else if (message.type === 'candidate') {
+        if (peer && peer.remoteDescription) {
+          try { await peer.addIceCandidate(message.candidate); } catch {}
+        } else pendingIce.push(message.candidate);
+      } else if (message.type === 'stop') {
+        stopCamera(false); setCamera('Admin ended the live view; camera off');
+      }
+    };
+    socket.onclose = () => {
+      adminOnline = false; stopCamera(false);
+      $('startButton').disabled = true;
+      $('connectButton').disabled = true;
+      setPair('Session disconnected. Request a fresh invite to reconnect.');
+    };
+    socket.onerror = () => setPair('Signaling connection failed; check the Worker URL');
+  });
+
+  async function startCamera() {
+    if (!adminOnline || !socket || socket.readyState !== WebSocket.OPEN) return;
+    $('startButton').disabled = true;
+    setCamera('Waiting for Android camera permission...');
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
+      if (!adminOnline || document.hidden) { stopCamera(false); return; }
+      $('preview').srcObject = cameraStream;
+      $('preview').style.display = 'block';
+      $('preview').play().catch(() => {});
+      $('stopButton').disabled = false;
+
+      peer = new RTCPeerConnection(rtcConfig);
+      peer.onicecandidate = event => { if (event.candidate) send({ type:'candidate', candidate:event.candidate }); };
+      peer.onconnectionstatechange = () => {
+        if (peer && ['failed','disconnected','closed'].includes(peer.connectionState)) {
+          stopCamera(true); setCamera('Peer connection ended; camera stopped');
+        }
+      };
+      for (const track of cameraStream.getTracks()) {
+        peer.addTrack(track, cameraStream);
+        track.addEventListener('ended', () => stopCamera(true), { once:true });
+      }
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      send({ type:'offer', description:peer.localDescription });
+      setCamera('Camera active; connecting to admin viewer...');
+    } catch (error) {
+      stopCamera(true);
+      setCamera('Not shared: ' + (error.name || 'Permission or device error'));
+    }
+  }
+  function stopCamera(notify) {
+    if (notify) send({ type:'stop' });
+    if (peer) { peer.onconnectionstatechange = null; peer.close(); peer = null; }
+    pendingIce = [];
+    if (cameraStream) { cameraStream.getTracks().forEach(track => track.stop()); cameraStream = null; }
+    $('preview').pause(); $('preview').srcObject = null; $('preview').style.display = 'none';
+    $('stopButton').disabled = true;
+    $('startButton').disabled = !adminOnline;
+    setCamera('Camera is off');
+  }
+  $('startButton').addEventListener('click', startCamera);
+  $('stopButton').addEventListener('click', () => stopCamera(true));
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopCamera(true); });
+  window.addEventListener('pagehide', () => { stopCamera(true); if (socket) socket.close(); });
+</script>
+</body>
+</html>
