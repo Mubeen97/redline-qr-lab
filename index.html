@@ -1,68 +1,278 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data: blob:; media-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
   <title>REDLINE QR Security Lab</title>
   <style>
-    body {
-      background: #081525;
-      color: white;
-      font-family: Arial, sans-serif;
-      padding: 24px;
-    }
-    .card {
-      background: #13263e;
-      border: 1px solid #315273;
-      border-radius: 14px;
-      padding: 20px;
-      max-width: 600px;
-      margin: 30px auto;
-    }
-    h1 { color: #48baff; }
-    .item {
-      padding: 12px 0;
-      border-bottom: 1px solid #315273;
-      overflow-wrap: anywhere;
-    }
-    .label { color: #88c8f7; }
-    .notice { color: #75e0af; }
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #081525; color: #eff6ff; line-height: 1.5; }
+    main { width: min(940px, 100%); margin: auto; padding: 24px 16px 50px; }
+    header { padding: 12px 0 18px; }
+    .eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .14em; color: #7dc9ff; }
+    h1 { font-size: clamp(27px, 5vw, 42px); line-height: 1.12; margin: 8px 0; }
+    h2 { font-size: 21px; margin: 0 0 5px; }
+    h3 { font-size: 17px; margin: 0; }
+    p { margin: 8px 0 14px; }
+    .muted { color: #abc2db; }
+    .safety { display: inline-flex; align-items: center; gap: 8px; background: #123a32; color: #9af0d0; padding: 7px 11px; border-radius: 40px; font-weight: 700; font-size: 13px; }
+    .card { border: 1px solid #315273; background: #13263e; border-radius: 16px; padding: 19px; margin: 14px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 14px; }
+    .grid .card { margin: 0; }
+    .info-row { padding: 10px 0; border-bottom: 1px solid #304760; overflow-wrap: anywhere; }
+    .info-row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .label { display: block; font-size: 12px; font-weight: 700; color: #88c8f7; margin-bottom: 3px; }
+    .status { color: #b8d0e6; font-size: 13px; min-height: 20px; }
+    .notice { background: #092637; color: #a3dfff; border: 1px solid #286184; border-radius: 11px; padding: 12px; font-size: 13px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 9px; margin: 13px 0; }
+    button, .download { background: #3ba7e9; color: #06192a; border: 0; border-radius: 9px; padding: 11px 14px; font: inherit; font-weight: 750; cursor: pointer; text-decoration: none; }
+    button.secondary { background: #253f5a; color: #eff6ff; border: 1px solid #4b6c8b; }
+    button:disabled { opacity: .44; cursor: not-allowed; }
+    button:focus-visible, .download:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+    video { display: none; width: 100%; margin-top: 10px; border-radius: 12px; background: #05101d; max-height: 320px; object-fit: contain; }
+    small { font-size: 12px; }
+    #audit { margin: 8px 0 0; padding-left: 20px; max-height: 220px; overflow: auto; }
+    #audit li { margin: 5px 0; color: #c1d5e9; font-size: 13px; }
+    footer { color: #8faac4; font-size: 12px; margin-top: 18px; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>REDLINE SECURITY LAB</h1>
-    <h3>Experiment 1 — Device Information</h3>
-    <p class="notice">LOCAL TEST — NO DATA UPLOADED</p>
+<main>
+  <header>
+    <div class="eyebrow">REDLINE ACADEMY / SECURITY EXPERIMENTS</div>
+    <h1>QR Security Lab</h1>
+    <p class="muted">See what a QR-opened webpage can learn, and where your browser requires consent.</p>
+    <span class="safety">● Permission-based testing only</span>
+  </header>
+
+  <section class="card" aria-labelledby="device-title">
+    <h2 id="device-title">Experiment 1 · Device Information</h2>
+    <p class="muted">These values are calculated in this browser. This page does not transmit or store them.</p>
     <div id="results"></div>
-  </div>
+  </section>
 
-  <script>
-    const info = {
-      "Browser Identifier": navigator.userAgent,
-      "Language": navigator.language,
-      "Time Zone": Intl.DateTimeFormat().resolvedOptions().timeZone,
-      "Screen Resolution": screen.width + " x " + screen.height,
-      "Connection Status": navigator.onLine ? "Online" : "Offline"
-    };
+  <section aria-labelledby="permission-title">
+    <h2 id="permission-title">Experiment 2 · Permission Boundaries</h2>
+    <p class="muted">Nothing below starts from the QR scan. Each test requires a button press and any applicable browser approval.</p>
+    <div class="grid">
+      <article class="card">
+        <h3>Camera preview</h3>
+        <p class="muted"><small>See a local preview. No picture or video is recorded.</small></p>
+        <div class="actions">
+          <button id="cameraStart" type="button">Request camera</button>
+          <button id="cameraStop" class="secondary" type="button" disabled>Stop camera</button>
+        </div>
+        <div id="cameraStatus" class="status" role="status">Camera inactive</div>
+        <video id="cameraVideo" autoplay playsinline muted></video>
+      </article>
+      <article class="card">
+        <h3>Microphone permission</h3>
+        <p class="muted"><small>Request microphone access, then release it. No audio is recorded or transmitted.</small></p>
+        <div class="actions">
+          <button id="micStart" type="button">Request microphone</button>
+          <button id="micStop" class="secondary" type="button" disabled>Stop microphone</button>
+        </div>
+        <div id="micStatus" class="status" role="status">Microphone inactive</div>
+      </article>
+      <article class="card">
+        <h3>Screen sharing</h3>
+        <p class="muted"><small>Choose a screen or tab to share locally. Mobile browser support varies.</small></p>
+        <div class="actions">
+          <button id="screenStart" type="button">Request screen</button>
+          <button id="screenStop" class="secondary" type="button" disabled>Stop sharing</button>
+        </div>
+        <div id="screenStatus" class="status" role="status">Screen sharing inactive</div>
+        <video id="screenVideo" autoplay playsinline muted></video>
+        <div class="actions">
+          <button id="screenShot" class="secondary" type="button" disabled>Save screenshot</button>
+          <button id="recordStart" class="secondary" type="button" disabled>Record screen</button>
+          <button id="recordStop" class="secondary" type="button" disabled>Stop recording</button>
+        </div>
+        <a id="recordDownload" class="download" style="display:none" download="redline-screen.webm">Download local recording</a>
+      </article>
+    </div>
+  </section>
 
-    const container = document.getElementById("results");
+  <section class="card" aria-labelledby="privacy-title">
+    <h2 id="privacy-title">Privacy & test activity</h2>
+    <p class="notice">No analytics, external scripts, upload requests, or remote-control functions are included. Normal requests to the website host still occur. Media remains on your device; downloads happen only when you select them.</p>
+    <h3>Session events (memory only)</h3>
+    <ol id="audit" aria-live="polite"></ol>
+    <p class="muted"><small>Leaving this page stops active media streams and discards this activity list.</small></p>
+  </section>
+  <footer>REDLINE QR Lab · Use only on devices you own or are authorized to test.</footer>
+</main>
 
-    for (const [label, value] of Object.entries(info)) {
-      const row = document.createElement("div");
-      row.className = "item";
+<script>
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const audit = message => {
+    const item = document.createElement('li');
+    item.textContent = new Date().toLocaleTimeString() + ' — ' + message;
+    $('audit').prepend(item);
+  };
 
-      const heading = document.createElement("div");
-      heading.className = "label";
-      heading.textContent = label;
+  const information = {
+    'Browser Identifier': navigator.userAgent,
+    'Language': navigator.language,
+    'Time Zone': Intl.DateTimeFormat().resolvedOptions().timeZone,
+    'Screen Resolution': screen.width + ' × ' + screen.height,
+    'Connection Status': navigator.onLine ? 'Online (browser report)' : 'Offline (browser report)'
+  };
+  for (const [label, value] of Object.entries(information)) {
+    const row = document.createElement('div');
+    row.className = 'info-row';
+    const caption = document.createElement('span');
+    caption.className = 'label';
+    caption.textContent = label;
+    const detail = document.createElement('span');
+    detail.textContent = value;
+    row.append(caption, detail);
+    $('results').append(row);
+  }
 
-      const detail = document.createElement("div");
-      detail.textContent = value;
+  const streams = { camera: null, mic: null, screen: null };
+  let recorder = null;
+  let recordingParts = [];
+  let downloadUrl = null;
 
-      row.append(heading, detail);
-      container.appendChild(row);
+  function status(kind, message) { $(kind + 'Status').textContent = message; }
+  function buttons(kind, active) {
+    $(kind + 'Start').disabled = active;
+    $(kind + 'Stop').disabled = !active;
+  }
+  function stop(kind) {
+    if (kind === 'screen' && recorder && recorder.state === 'recording') recorder.stop();
+    if (streams[kind]) {
+      streams[kind].getTracks().forEach(track => track.stop());
+      streams[kind] = null;
+      audit(kind + ' stopped');
     }
-  </script>
+    if (kind !== 'mic') {
+      const video = $(kind + 'Video');
+      video.pause(); video.srcObject = null; video.style.display = 'none';
+    }
+    buttons(kind, false);
+    status(kind, kind === 'screen' ? 'Screen sharing inactive' : kind + ' inactive');
+    if (kind === 'screen') {
+      $('screenShot').disabled = true;
+      $('recordStart').disabled = true;
+      $('recordStop').disabled = true;
+    }
+  }
+  async function start(kind) {
+    if (!navigator.mediaDevices) { status(kind, 'Media APIs unavailable in this browser'); return; }
+    $(kind + 'Start').disabled = true;
+    status(kind, 'Waiting for your approval...');
+    try {
+      const stream = kind === 'screen'
+        ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+        : await navigator.mediaDevices.getUserMedia(kind === 'mic'
+          ? { audio: true, video: false } : { audio: false, video: true });
+      streams[kind] = stream;
+      stream.getTracks().forEach(track => track.addEventListener('ended', () => stop(kind), { once: true }));
+      buttons(kind, true);
+      status(kind, kind + ' approved — active locally');
+      audit(kind + ' permission approved');
+      if (kind !== 'mic') {
+        const video = $(kind + 'Video');
+        video.srcObject = stream;
+        video.style.display = 'block';
+        video.play().catch(() => {});
+      }
+      if (kind === 'screen') {
+        $('screenShot').disabled = false;
+        $('recordStart').disabled = !window.MediaRecorder;
+      }
+    } catch (error) {
+      $(kind + 'Start').disabled = false;
+      const detail = error && error.name ? error.name : 'Unavailable';
+      status(kind, 'Not started: ' + detail);
+      audit(kind + ' request did not start (' + detail + ')');
+    }
+  }
+
+  for (const kind of ['camera', 'mic', 'screen']) {
+    $(kind + 'Start').addEventListener('click', () => start(kind));
+    $(kind + 'Stop').addEventListener('click', () => stop(kind));
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    $('screenStart').disabled = true;
+    status('screen', 'Screen sharing is not supported in this browser');
+  }
+
+  function offerDownload(url, filename) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+  }
+  $('screenShot').addEventListener('click', () => {
+    const video = $('screenVideo');
+    if (!streams.screen || !video.videoWidth || !video.videoHeight) {
+      status('screen', 'Wait until the screen preview is visible'); return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      offerDownload(url, 'redline-screenshot.png');
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      audit('Screenshot saved on this device');
+    }, 'image/png');
+  });
+
+  $('recordStart').addEventListener('click', () => {
+    if (!streams.screen || !window.MediaRecorder) return;
+    if (downloadUrl) { URL.revokeObjectURL(downloadUrl); downloadUrl = null; }
+    $('recordDownload').style.display = 'none';
+    recordingParts = [];
+    try {
+      const mime = ['video/webm;codecs=vp8', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t));
+      recorder = new MediaRecorder(streams.screen, mime ? { mimeType: mime } : undefined);
+      recorder.ondataavailable = event => { if (event.data.size) recordingParts.push(event.data); };
+      recorder.onstop = () => {
+        if (recordingParts.length) {
+          downloadUrl = URL.createObjectURL(new Blob(recordingParts, { type: recorder.mimeType || 'video/webm' }));
+          $('recordDownload').href = downloadUrl;
+          $('recordDownload').style.display = 'inline-block';
+          audit('Local recording ready for download');
+        }
+        $('recordStart').disabled = !streams.screen;
+        $('recordStop').disabled = true;
+      };
+      recorder.start();
+      $('recordStart').disabled = true;
+      $('recordStop').disabled = false;
+      audit('Screen recording started with consent');
+    } catch (error) {
+      status('screen', 'Recording unavailable: ' + (error.name || 'Error'));
+      $('recordStart').disabled = false;
+    }
+  });
+  $('recordStop').addEventListener('click', () => {
+    if (recorder && recorder.state === 'recording') recorder.stop();
+  });
+  $('recordDownload').addEventListener('click', () => audit('Local recording downloaded'));
+
+  function stopAll() {
+    ['camera', 'mic', 'screen'].forEach(stop);
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopAll();
+  });
+  window.addEventListener('pagehide', () => {
+    stopAll();
+    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+  });
+  audit('Lab opened; no media permissions requested');
+</script>
 </body>
 </html>
