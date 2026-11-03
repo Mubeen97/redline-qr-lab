@@ -13,10 +13,10 @@ This is a **visible, consent-based** live camera viewer for one Android test dev
 
 1. Sign into your **personal** Cloudflare account at [dash.cloudflare.com](https://dash.cloudflare.com). Do not use company credentials or change the office network.
 2. Go to **Workers & Pages**, create/connect a Worker from GitHub, and select `Mubeen97/redline-qr-lab`.
-3. Use the Worker name `redline-remote-signal` (matching `worker/wrangler.jsonc`). Set **root directory** to `worker`.
+3. The existing Cloudflare Worker is named `redline-qr-lab` (matching `worker/wrangler.jsonc`). Set **root directory** to `worker` under **Settings → Build → Build Configuration**.
 4. Use build command `npm install` and deploy command `npx wrangler deploy`. Cloudflare performs the install/build on its own infrastructure; there is no local installation. The first deploy creates the SQLite-backed Durable Object namespace.
 5. In Cloudflare Worker **Settings → Variables and Secrets**, add a **Secret** (not plaintext variable) named exactly `ADMIN_PASSWORD`. Give it a unique, random password of at least 16 characters. **Do not put the password in GitHub or send it in chat.** Deploy the secret change.
-6. Note the actual HTTPS Worker URL, such as `https://redline-remote-signal.<your-subdomain>.workers.dev`. Test `<worker-url>/health` in the browser. The result should report `"status":"ready"`.
+6. Note the actual HTTPS Worker URL, such as `https://redline-qr-lab.<your-subdomain>.workers.dev`. Test `<worker-url>/health` in the browser. The result should report `"status":"ready"`.
 
 If the Worker cannot be created without a paid plan on your account, stop and ask before enabling billing. Check the Cloudflare dashboard for current plan terms and usage limits.
 
